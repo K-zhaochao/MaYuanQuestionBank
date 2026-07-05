@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# AI / Skill files (not part of the deployable website)
+.claude/
+
+# Template files (not part of the deployable website)
+.moban/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+*.log
