@@ -92,8 +92,9 @@ function getWrongAnswers(chapterId) {
 function exportProgress() {
     const data = { version: 1, exportedAt: new Date().toISOString(), progress: APP.progress, expandedExplanations: [...APP.expandedExplanations] };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `马原练习进度_${new Date().toISOString().slice(0,10)}.json` });
-    a.click(); URL.revokeObjectURL(a.href);
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: `马原练习进度_${new Date().toISOString().slice(0,10)}.json` });
+    a.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function importProgress() {
@@ -107,7 +108,10 @@ function importProgress() {
                 if (!data.progress || typeof data.progress !== 'object') throw new Error('无效的进度文件格式');
                 if (!confirm(`即将导入 ${Object.keys(data.progress).length} 条答题记录，是否继续？\n（将覆盖当前进度）`)) return;
                 APP.progress = data.progress; saveProgress(APP.progress);
-                if (data.expandedExplanations) APP.expandedExplanations = new Set(data.expandedExplanations);
+                if (data.expandedExplanations) {
+                    APP.expandedExplanations = new Set(data.expandedExplanations);
+                    saveExpandedState();
+                }
                 alert('导入成功！'); navigate(APP.currentView);
             } catch (err) { alert('导入失败：' + err.message); }
         };
