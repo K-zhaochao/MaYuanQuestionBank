@@ -59,7 +59,9 @@ function getChapterProgress(chapterId) {
     if (!ch) return { done: 0, total: 0, correct: 0 };
     let done = 0, correct = 0;
     ch.questions.forEach(q => {
-        if (APP.progress[q.id]) { done++; if (APP.progress[q.id].correct) correct++; }
+        const p = APP.progress[q.id];
+        // 仅当已做出最终判定（correct 为 true/false）才算已完成
+        if (p && (p.correct === true || p.correct === false)) { done++; if (p.correct) correct++; }
     });
     return { done, total: ch.questions.length, correct };
 }
@@ -69,7 +71,9 @@ function getTotalProgress() {
     QUESTION_BANK.chapters.forEach(ch => {
         ch.questions.forEach(q => {
             total++;
-            if (APP.progress[q.id]) { done++; if (APP.progress[q.id].correct) correct++; }
+            const p = APP.progress[q.id];
+            // 仅当已做出最终判定才算已完成
+            if (p && (p.correct === true || p.correct === false)) { done++; if (p.correct) correct++; }
         });
     });
     return { done, total, correct };
@@ -80,7 +84,8 @@ function getWrongAnswers(chapterId) {
     const wrong = [];
     chapters.forEach(ch => {
         ch.questions.forEach(q => {
-            if (APP.progress[q.id] && !APP.progress[q.id].correct) {
+            // 仅纳入明确判定为错误的（correct === false），排除部分正确（null）
+            if (APP.progress[q.id] && APP.progress[q.id].correct === false) {
                 wrong.push({ ...q, chapterTitle: ch.title, chapterId: ch.id, userAnswer: APP.progress[q.id].answer });
             }
         });
@@ -309,7 +314,9 @@ function renderQuestionCard(q) {
     const saved = APP.progress[q.id];
     const userAnswer = saved ? saved.answer : null;
     const isCorrect = saved ? saved.correct : null;
-    const showResult = saved !== undefined;
+    // isFinal: 已做出最终判定（正确或错误），而非部分正确（null）
+    const isFinal = saved && (saved.correct === true || saved.correct === false);
+    const showResult = isFinal;
     const expId = q.id + '-exp';
     const expanded = APP.expandedExplanations.has(q.id);
     
@@ -365,10 +372,11 @@ function renderQuestionCard(q) {
             let cls = 'option-item';
             if (userAnswers.includes(opt.label)) cls += ' selected';
             const correctLabels = q.answer.split('');
-            if (showResult && correctLabels.includes(opt.label)) cls += ' correct-answer';
-            if (showResult && userAnswers.includes(opt.label) && !correctLabels.includes(opt.label)) cls += ' wrong-answer';
+            if (isFinal && correctLabels.includes(opt.label)) cls += ' correct-answer';
+            if (isFinal && userAnswers.includes(opt.label) && !correctLabels.includes(opt.label)) cls += ' wrong-answer';
+            const clickAttr = ` onclick="handleMultiAnswer('${q.id}', '${opt.label}')"`;
             answerHtml += `
-                <li class="${cls}" onclick="handleMultiAnswer('${q.id}', '${opt.label}')">
+                <li class="${cls}"${clickAttr}>
                     <span class="option-label">${opt.label}.</span>
                     <span class="option-text">${opt.text}</span>
                 </li>
@@ -387,7 +395,7 @@ function renderQuestionCard(q) {
             </button>
             <div class="explanation-content ${expanded ? 'visible' : ''}" id="${expId}">
                 <strong>📖 解析：</strong>${q.explanation}
-                ${showResult ? `<br><br><strong>✅ 正确答案：</strong>${q.answer} &nbsp;|&nbsp; <strong>你的答案：</strong>${userAnswer}` : `<br><br><strong>✅ 正确答案：</strong>${q.answer}`}
+                ${isFinal ? `<br><br><strong>✅ 正确答案：</strong>${q.answer} &nbsp;|&nbsp; <strong>你的答案：</strong>${userAnswer}` : `<br><br><strong>✅ 正确答案：</strong>${q.answer}`}
             </div>
         </div>
     `;
@@ -413,17 +421,43 @@ function handleSingleAnswer(questionId, userAnswer) {
 function handleMultiAnswer(questionId, optionLabel) {
     const chapter = findChapterForQuestion(questionId); if (!chapter) return;
     const q = chapter.questions.find(q => q.id === questionId); if (!q) return;
+    // 已判定的允许撤回重选
     const saved = APP.progress[questionId];
+
     let currentAnswers = saved ? saved.answer.split('') : [];
     currentAnswers = currentAnswers.includes(optionLabel)
         ? currentAnswers.filter(a => a !== optionLabel)
         : [...currentAnswers, optionLabel].sort();
     const userAnswer = currentAnswers.join('');
-    const isCorrect = userAnswer === q.answer;
-    setUserAnswer(questionId, userAnswer, isCorrect);
-    if (isCorrect || currentAnswers.length >= q.answer.length) {
-        APP.expandedExplanations.add(questionId); saveExpandedState();
+
+    const correctLabels = q.answer.split('');
+
+    // 全部撤回 → 回到未答状态
+    if (currentAnswers.length === 0) {
+        delete APP.progress[questionId];
+        saveProgress(APP.progress);
+        APP.expandedExplanations.delete(questionId); saveExpandedState();
+        renderChapter(chapter.id); updateChapterProgressBar(chapter.id);
+        return;
     }
+
+    const hasWrong = currentAnswers.some(a => !correctLabels.includes(a));
+    const allCorrect = correctLabels.every(a => currentAnswers.includes(a)) && !hasWrong;
+
+    let isCorrect;
+    if (hasWrong) {
+        isCorrect = false;
+        APP.expandedExplanations.add(questionId); saveExpandedState();
+    } else if (allCorrect) {
+        isCorrect = true;
+        APP.expandedExplanations.add(questionId); saveExpandedState();
+    } else {
+        // 部分正确 → 不判定，允许继续
+        isCorrect = null;
+        APP.expandedExplanations.delete(questionId); saveExpandedState();
+    }
+
+    setUserAnswer(questionId, userAnswer, isCorrect);
     renderChapter(chapter.id); updateChapterProgressBar(chapter.id);
 }
 
